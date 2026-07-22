@@ -60,8 +60,8 @@ def clean_text(text):
 
 @st.cache_resource
 def load_model():
-    model = joblib.load("fake_news_model.pkl")
-    vectorizer = joblib.load("tfidf.pkl")
+    model = joblib.load("models/fake_news_model.pkl")
+    vectorizer = joblib.load("models/tfidf.pkl")
     return model, vectorizer
 
 
@@ -119,10 +119,9 @@ try:
 except FileNotFoundError:
     st.error(
         "Could not find the trained model files. Make sure "
-        "`fake_news_model.pkl` and `tfidf.pkl` exist "
-        "in the same folder as this app (repository root), and that "
-        "you've already run your training script (fake_news_real.py) "
-        "at least once."
+        "`models/fake_news_model.pkl` and `models/tfidf.pkl` exist "
+        "in the same folder as this app, and that you've already run "
+        "your training script (fake_news_real.py) at least once."
     )
     st.stop()
 
