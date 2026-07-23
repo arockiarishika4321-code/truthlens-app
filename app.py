@@ -1,8 +1,8 @@
 # ==========================================================
 # Fake News Detector - Streamlit Web App
 #
-# This uses your ALREADY TRAINED model (models/fake_news_model.pkl
-# and models/tfidf.pkl). It does NOT retrain anything.
+# This uses your ALREADY TRAINED model (fake_news_model.pkl
+# and tfidf.pkl). It does NOT retrain anything.
 #
 # HOW TO RUN:
 #   1. pip install streamlit
@@ -60,8 +60,8 @@ def clean_text(text):
 
 @st.cache_resource
 def load_model():
-    model = joblib.load("models/fake_news_model.pkl")
-    vectorizer = joblib.load("models/tfidf.pkl")
+    model = joblib.load("fake_news_model.pkl")
+    vectorizer = joblib.load("tfidf.pkl")
     return model, vectorizer
 
 
@@ -119,9 +119,10 @@ try:
 except FileNotFoundError:
     st.error(
         "Could not find the trained model files. Make sure "
-        "`models/fake_news_model.pkl` and `models/tfidf.pkl` exist "
-        "in the same folder as this app, and that you've already run "
-        "your training script (fake_news_real.py) at least once."
+        "`fake_news_model.pkl` and `tfidf.pkl` exist "
+        "in the same folder as this app (repository root), and that "
+        "you've already run your training script (fake_news_real.py) "
+        "at least once."
     )
     st.stop()
 
