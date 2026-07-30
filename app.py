@@ -1,6 +1,6 @@
 # ============================================================
 #   TRUTHLENS — ADVANCED FAKE NEWS DETECTION SYSTEM
-#   Features: Tamil Support, URL Check, Dashboard, 
+#   Features: Tamil Support, URL Check, Dashboard,
 #             Confidence Score, History, Word Highlight
 #   Run: streamlit run app.py
 # ============================================================
@@ -15,11 +15,12 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
+import seaborn as sns
 from datetime import datetime
 from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer
 from bs4 import BeautifulSoup
-from googletrans import Translator
+from deep_translator import GoogleTranslator
 
 # ============================================================
 #  PAGE CONFIG
@@ -40,15 +41,14 @@ nltk.download('punkt',     quiet=True)
 
 stop_words = set(stopwords.words('english'))
 stemmer    = PorterStemmer()
-translator = Translator()
 
 # ============================================================
 #  PATHS
 # ============================================================
 
-MODEL_PATH     = 'fake_news_model.pkl'
-TFIDF_PATH     = 'tfidf.pkl'
-HISTORY_PATH   = 'prediction_history.csv'
+MODEL_PATH   = 'fake_news_model.pkl'
+TFIDF_PATH   = 'tfidf.pkl'
+HISTORY_PATH = 'prediction_history.csv'
 
 # ============================================================
 #  TEXT CLEANING
@@ -67,18 +67,17 @@ def clean_text(text):
     return ' '.join(words)
 
 # ============================================================
-#  FEATURE 1 — AUTO TAMIL TRANSLATE
+#  FEATURE 1 — AUTO TRANSLATE (Tamil/Any → English)
 # ============================================================
 
 def translate_to_english(text):
     try:
-        detected = translator.detect(text)
-        if detected.lang != 'en':
-            translated = translator.translate(text, dest='en')
-            return translated.text, detected.lang
-        return text, 'en'
+        translated = GoogleTranslator(source='auto', target='en').translate(text)
+        if translated and translated != text:
+            return translated, 'Tamil/Other'
+        return text, 'English'
     except Exception:
-        return text, 'en'
+        return text, 'English'
 
 # ============================================================
 #  FEATURE 2 — URL NEWS EXTRACTOR
@@ -86,25 +85,18 @@ def translate_to_english(text):
 
 def extract_text_from_url(url):
     try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
+        headers  = {'User-Agent': 'Mozilla/5.0'}
         response = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(response.content, 'html.parser')
-
-        # Remove unwanted tags
+        soup     = BeautifulSoup(response.content, 'html.parser')
         for tag in soup(['script', 'style', 'nav', 'footer', 'header']):
             tag.decompose()
-
-        # Get paragraphs
         paragraphs = soup.find_all('p')
-        text = ' '.join([p.get_text() for p in paragraphs])
-
+        text       = ' '.join([p.get_text() for p in paragraphs])
         if len(text.strip()) < 100:
             text = soup.get_text()
-
         text = re.sub(r'\s+', ' ', text).strip()
         return text[:5000]
-
-    except Exception as e:
+    except Exception:
         return None
 
 # ============================================================
@@ -124,34 +116,32 @@ def get_confidence(model, vector):
     return 80.0
 
 # ============================================================
-#  FEATURE 4 — TOP WORDS HIGHLIGHT
+#  FEATURE 4 — TOP TRIGGER WORDS
 # ============================================================
 
-def get_top_words(text, tfidf, model, n=10):
+def get_top_words(text, tfidf, n=10):
     try:
-        vec       = tfidf.transform([text])
-        features  = tfidf.get_feature_names_out()
-        scores    = vec.toarray()[0]
-        top_idx   = scores.argsort()[-n:][::-1]
-        top_words = [(features[i], round(scores[i], 4)) for i in top_idx if scores[i] > 0]
-        return top_words
+        vec      = tfidf.transform([text])
+        features = tfidf.get_feature_names_out()
+        scores   = vec.toarray()[0]
+        top_idx  = scores.argsort()[-n:][::-1]
+        return [(features[i], round(scores[i], 4)) for i in top_idx if scores[i] > 0]
     except Exception:
         return []
 
 # ============================================================
-#  SAVE HISTORY
+#  SAVE PREDICTION HISTORY
 # ============================================================
 
-def save_history(original_text, translated_text, language,
-                 source, prediction, confidence):
+def save_history(original, translated, language, source, prediction, confidence):
     record = pd.DataFrame({
         'timestamp'   : [datetime.now().strftime('%Y-%m-%d %H:%M:%S')],
         'source'      : [source],
         'language'    : [language],
         'prediction'  : [prediction],
         'confidence'  : [confidence],
-        'word_count'  : [len(original_text.split())],
-        'text_preview': [original_text[:100] + '...']
+        'word_count'  : [len(original.split())],
+        'text_preview': [original[:100] + '...']
     })
     if os.path.exists(HISTORY_PATH):
         old    = pd.read_csv(HISTORY_PATH)
@@ -179,22 +169,19 @@ model, tfidf = load_model()
 # ============================================================
 
 with st.sidebar:
-    st.image("https://img.icons8.com/color/96/news.png", width=80)
-    st.title("TruthLens")
+    st.title("🔍 TruthLens")
     st.caption("See Through the Noise. Find the Truth.")
     st.divider()
     st.write("**Model:** Linear SVM")
     st.write("**Accuracy:** 95.25%")
     st.write("**Trained on:** 72,134 articles")
+    st.write("**Languages:** English + Tamil")
     st.divider()
-
     if os.path.exists(HISTORY_PATH):
         history = pd.read_csv(HISTORY_PATH)
         st.write(f"**Total checked:** {len(history)}")
-        fake_count = len(history[history['prediction'] == 'FAKE'])
-        real_count = len(history[history['prediction'] == 'REAL'])
-        st.write(f"**Fake detected:** {fake_count}")
-        st.write(f"**Real detected:** {real_count}")
+        st.write(f"**Fake detected:** {len(history[history['prediction']=='FAKE'])}")
+        st.write(f"**Real detected:** {len(history[history['prediction']=='REAL'])}")
 
 # ============================================================
 #  MAIN TABS
@@ -208,7 +195,7 @@ tab1, tab2, tab3, tab4 = st.tabs([
 ])
 
 # ============================================================
-#  TAB 1 — CHECK NEWS (Text + Tamil Support)
+#  TAB 1 — CHECK NEWS
 # ============================================================
 
 with tab1:
@@ -233,61 +220,44 @@ with tab1:
             st.warning("Please paste some news text first!")
         else:
             with st.spinner("Analysing..."):
-
-                # STEP 1 — Detect and translate
                 translated_text, detected_lang = translate_to_english(news_input)
-
-                if detected_lang != 'en':
-                    st.info(f"🌐 Tamil detected! Auto-translated to English for analysis.")
+                if detected_lang != 'English':
+                    st.info(f"🌐 Tamil detected! Auto-translated to English.")
                     with st.expander("See translated text"):
                         st.write(translated_text)
-
-                # STEP 2 — Clean and predict
                 cleaned    = clean_text(translated_text)
                 vector     = tfidf.transform([cleaned])
                 prediction = model.predict(vector)[0]
                 confidence = get_confidence(model, vector)
                 label      = "REAL" if prediction == 1 else "FAKE"
-
-                # STEP 3 — Save history
-                lang_name = "Tamil" if detected_lang == 'ta' else "English"
-                save_history(news_input, translated_text, lang_name,
+                save_history(news_input, translated_text, detected_lang,
                              "Text Input", label, confidence)
 
+            st.divider()
+            if prediction == 1:
+                st.success("# ✅ REAL NEWS")
+            else:
+                st.error("# 🚨 FAKE NEWS")
+            st.progress(int(confidence))
+            st.write(f"**Confidence: {confidence}%**")
+
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Original words",  len(news_input.split()))
+            c2.metric("After cleaning",  len(cleaned.split()))
+            c3.metric("Language",        detected_lang)
+
+            top_words = get_top_words(cleaned, tfidf)
+            if top_words:
                 st.divider()
+                st.subheader("🔑 Key words that triggered this result:")
+                cols = st.columns(5)
+                for i, (word, score) in enumerate(top_words[:10]):
+                    cols[i % 5].metric(word, f"{score:.3f}")
 
-                # STEP 4 — Show result
-                if prediction == 1:
-                    st.success("# ✅ REAL NEWS")
-                    st.progress(int(confidence))
-                    st.write(f"**Confidence: {confidence}%**")
-                else:
-                    st.error("# 🚨 FAKE NEWS")
-                    st.progress(int(confidence))
-                    st.write(f"**Confidence: {confidence}%**")
-
-                # STEP 5 — Word stats
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Original words",   len(news_input.split()))
-                c2.metric("After cleaning",   len(cleaned.split()))
-                c3.metric("Language",         lang_name)
-
-                # STEP 6 — Top trigger words
-                top_words = get_top_words(cleaned, tfidf, model)
-                if top_words:
-                    st.divider()
-                    st.subheader("🔑 Key words that triggered this result:")
-                    cols = st.columns(5)
-                    for i, (word, score) in enumerate(top_words[:10]):
-                        cols[i % 5].metric(word, f"{score:.3f}")
-
-                # STEP 7 — Share result
-                st.divider()
-                result_text = f"TruthLens Result: {label} ({confidence}%)\nCheck: truthlens-rishika.streamlit.app"
-                st.text_area("Share this result:", value=result_text, height=80)
-
-                st.info("ML prediction only. Always verify from trusted sources.")
-
+            st.divider()
+            result_text = f"TruthLens Result: {label} ({confidence}%)\nCheck: truthlens-rishika.streamlit.app"
+            st.text_area("Share this result:", value=result_text, height=80)
+            st.info("ML prediction only. Always verify from trusted sources.")
 
 # ============================================================
 #  TAB 2 — CHECK URL
@@ -295,13 +265,12 @@ with tab1:
 
 with tab2:
     st.title("🔗 Check News from URL")
-    st.write("Paste any news article URL — we'll extract and check it automatically!")
+    st.write("Paste any news article URL — we extract and check it automatically!")
 
     url_input = st.text_input(
         "News article URL:",
         placeholder="https://www.thehindu.com/news/..."
     )
-
     url_btn = st.button("🔗 Extract & Check", use_container_width=True)
 
     if url_btn:
@@ -316,8 +285,7 @@ with tab2:
             if not extracted_text or len(extracted_text) < 100:
                 st.error("Could not extract text from this URL. Try copying the article text manually.")
             else:
-                st.success(f"Extracted {len(extracted_text.split())} words from URL!")
-
+                st.success(f"Extracted {len(extracted_text.split())} words!")
                 with st.expander("See extracted text"):
                     st.write(extracted_text[:1000] + "...")
 
@@ -328,28 +296,24 @@ with tab2:
                     prediction = model.predict(vector)[0]
                     confidence = get_confidence(model, vector)
                     label      = "REAL" if prediction == 1 else "FAKE"
-
-                    save_history(extracted_text, translated_text, "English",
+                    save_history(extracted_text, translated_text, detected_lang,
                                  url_input, label, confidence)
 
                 st.divider()
-
                 if prediction == 1:
                     st.success("# ✅ REAL NEWS")
                 else:
                     st.error("# 🚨 FAKE NEWS")
-
                 st.progress(int(confidence))
                 st.write(f"**Confidence: {confidence}%**")
 
-                top_words = get_top_words(cleaned, tfidf, model)
+                top_words = get_top_words(cleaned, tfidf)
                 if top_words:
                     st.divider()
                     st.subheader("🔑 Key trigger words:")
                     cols = st.columns(5)
                     for i, (word, score) in enumerate(top_words[:10]):
                         cols[i % 5].metric(word, f"{score:.3f}")
-
 
 # ============================================================
 #  TAB 3 — DASHBOARD
@@ -363,7 +327,6 @@ with tab3:
     else:
         history = pd.read_csv(HISTORY_PATH)
 
-        # Metric cards
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Total Checked",  len(history))
         c2.metric("Fake Detected",  len(history[history['prediction'] == 'FAKE']))
@@ -371,16 +334,15 @@ with tab3:
         c4.metric("Avg Confidence", f"{round(history['confidence'].mean(), 1)}%")
 
         st.divider()
-
         col1, col2 = st.columns(2)
 
         with col1:
-            st.subheader("Fake vs Real count")
+            st.subheader("Fake vs Real")
             counts = history['prediction'].value_counts()
             fig, ax = plt.subplots(figsize=(5, 4))
             colors  = ['#FF6B6B' if x == 'FAKE' else '#6BCB77' for x in counts.index]
             counts.plot(kind='bar', color=colors, ax=ax)
-            ax.set_title('Fake vs Real')
+            ax.set_title('Fake vs Real Articles')
             ax.set_xlabel('')
             plt.xticks(rotation=0)
             plt.tight_layout()
@@ -399,7 +361,6 @@ with tab3:
             plt.close()
 
         st.divider()
-
         col3, col4 = st.columns(2)
 
         with col3:
@@ -409,7 +370,7 @@ with tab3:
             ax3.pie(lang_counts.values,
                     labels=lang_counts.index,
                     autopct='%1.1f%%',
-                    colors=['#4ECDC4', '#FF6B6B'])
+                    colors=['#4ECDC4', '#FF6B6B', '#FFE66D'])
             ax3.set_title('Languages Used')
             st.pyplot(fig3)
             plt.close()
@@ -424,7 +385,6 @@ with tab3:
             st.pyplot(fig4)
             plt.close()
 
-
 # ============================================================
 #  TAB 4 — HISTORY
 # ============================================================
@@ -435,18 +395,17 @@ with tab4:
     if not os.path.exists(HISTORY_PATH):
         st.info("No history yet! Start checking news articles.")
     else:
-        history = pd.read_csv(HISTORY_PATH)
-        st.write(f"Total predictions: **{len(history)}**")
-
-        # Filter
+        history    = pd.read_csv(HISTORY_PATH)
         filter_opt = st.selectbox("Filter by:", ["All", "FAKE only", "REAL only", "Tamil only"])
+
         if filter_opt == "FAKE only":
             history = history[history['prediction'] == 'FAKE']
         elif filter_opt == "REAL only":
             history = history[history['prediction'] == 'REAL']
         elif filter_opt == "Tamil only":
-            history = history[history['language'] == 'Tamil']
+            history = history[history['language'] != 'English']
 
+        st.write(f"Showing: **{len(history)}** predictions")
         st.dataframe(
             history[['timestamp', 'source', 'language',
                       'prediction', 'confidence', 'text_preview']]
@@ -455,7 +414,6 @@ with tab4:
         )
 
         st.divider()
-
         col1, col2 = st.columns(2)
         with col1:
             st.download_button(
@@ -477,8 +435,8 @@ with tab4:
 st.divider()
 st.markdown(
     "<div style='text-align:center;color:gray'>"
-    "🔍 TruthLens | Built with Streamlit + scikit-learn + NLTK | "
-    "BSc Data Science Final Year Project"
+    "🔍 TruthLens | Streamlit + scikit-learn + NLTK | "
+    "BSc Data Science Final Year Project | 95.25% Accuracy"
     "</div>",
     unsafe_allow_html=True
 )
