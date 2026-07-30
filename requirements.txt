@@ -1,7 +1,10 @@
-streamlit
-plotly
-scikit-learn
-nltk
-joblib
 pandas
 numpy
+scikit-learn
+streamlit
+joblib
+nltk
+matplotlib
+requests
+beautifulsoup4
+googletrans==4.0.0rc1
