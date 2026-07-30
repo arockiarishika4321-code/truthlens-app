@@ -8,4 +8,4 @@ matplotlib==3.7.2
 seaborn==0.12.2
 requests==2.31.0
 beautifulsoup4==4.12.2
-googletrans==4.0.0rc1
+deep-translator==1.11.4
