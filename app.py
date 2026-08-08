@@ -33,13 +33,39 @@ st.set_page_config(
 )
 
 # ============================================================
-#  NLTK SETUP
+#  NLTK SETUP (robust — app no longer crashes if download fails)
 # ============================================================
 
-nltk.download('stopwords', quiet=True)
-nltk.download('punkt',     quiet=True)
+# Small built-in fallback list, used only if NLTK data can't be fetched
+FALLBACK_STOPWORDS = {
+    'a', 'an', 'the', 'and', 'or', 'but', 'if', 'is', 'are', 'was', 'were',
+    'be', 'been', 'being', 'to', 'of', 'in', 'on', 'for', 'with', 'as',
+    'by', 'at', 'from', 'this', 'that', 'these', 'those', 'it', 'its',
+    'he', 'she', 'they', 'we', 'you', 'i', 'his', 'her', 'their', 'our',
+    'not', 'no', 'do', 'does', 'did', 'has', 'have', 'had', 'will',
+    'would', 'can', 'could', 'should', 'shall', 'may', 'might', 'must'
+}
 
-stop_words = set(stopwords.words('english'))
+@st.cache_resource
+def load_stopwords():
+    try:
+        nltk.data.find('corpora/stopwords')
+    except LookupError:
+        try:
+            nltk.download('stopwords', quiet=True)
+        except Exception:
+            pass
+    try:
+        return set(stopwords.words('english'))
+    except Exception:
+        st.warning(
+            "Could not load NLTK stopwords (network/data issue). "
+            "Using a smaller built-in stopword list instead — predictions "
+            "will still work, just slightly less refined."
+        )
+        return FALLBACK_STOPWORDS
+
+stop_words = load_stopwords()
 stemmer    = PorterStemmer()
 
 # ============================================================
@@ -149,7 +175,7 @@ def save_history(original, translated, language, source, prediction, confidence)
     record.to_csv(HISTORY_PATH, index=False)
 
 # ============================================================
-#  LOAD MODEL
+#  LOAD MODEL (robust — shows a clear message instead of crashing)
 # ============================================================
 
 @st.cache_resource
@@ -158,11 +184,48 @@ def load_model():
     tfidf = joblib.load(TFIDF_PATH)
     return model, tfidf
 
-if not os.path.exists(MODEL_PATH):
-    st.error("Model file not found! Please upload fake_news_model.pkl and tfidf.pkl")
+if not os.path.exists(MODEL_PATH) or not os.path.exists(TFIDF_PATH):
+    st.error("Model file not found! Please upload fake_news_model.pkl and tfidf.pkl to the repo.")
     st.stop()
 
-model, tfidf = load_model()
+try:
+    model, tfidf = load_model()
+except Exception as e:
+    st.error(
+        "⚠️ Could not load the model files. This usually means the "
+        "scikit-learn / numpy version installed on this server doesn't "
+        "match the version used to save the .pkl files.\n\n"
+        f"**Error details:** `{type(e).__name__}: {e}`\n\n"
+        "**Fix:** pin `scikit-learn`, `numpy`, and `joblib` in "
+        "requirements.txt to the exact versions used when the model was "
+        "trained/saved, then redeploy. See the note at the bottom of "
+        "requirements.txt in this project for the recommended pins."
+    )
+    st.stop()
+
+# ------------------------------------------------------------
+#  Figure out which raw prediction value means "REAL" vs "FAKE"
+#  Works whether the model outputs 0/1, or string labels directly.
+# ------------------------------------------------------------
+
+def label_from_prediction(raw_pred):
+    # String-label models: just use the string as-is (normalised)
+    if isinstance(raw_pred, str):
+        return raw_pred.strip().upper()
+
+    # Numeric-label models: use model.classes_ to find out what the
+    # classes actually mean, instead of assuming 1 == REAL.
+    classes = list(getattr(model, 'classes_', []))
+    if classes:
+        # If classes_ itself is strings (e.g. ['FAKE','REAL']), map directly
+        if all(isinstance(c, str) for c in classes):
+            return str(raw_pred).strip().upper()
+        # Otherwise classes_ is numeric (e.g. [0, 1]) — assume the higher
+        # numeric class is REAL, matching common 0=FAKE / 1=REAL convention.
+        return "REAL" if raw_pred == max(classes) else "FAKE"
+
+    # Fallback if classes_ isn't available at all
+    return "REAL" if raw_pred == 1 else "FAKE"
 
 # ============================================================
 #  SIDEBAR
@@ -222,19 +285,19 @@ with tab1:
             with st.spinner("Analysing..."):
                 translated_text, detected_lang = translate_to_english(news_input)
                 if detected_lang != 'English':
-                    st.info(f"🌐 Tamil detected! Auto-translated to English.")
+                    st.info("🌐 Tamil detected! Auto-translated to English.")
                     with st.expander("See translated text"):
                         st.write(translated_text)
                 cleaned    = clean_text(translated_text)
                 vector     = tfidf.transform([cleaned])
-                prediction = model.predict(vector)[0]
+                raw_pred   = model.predict(vector)[0]
                 confidence = get_confidence(model, vector)
-                label      = "REAL" if prediction == 1 else "FAKE"
+                label      = label_from_prediction(raw_pred)
                 save_history(news_input, translated_text, detected_lang,
                              "Text Input", label, confidence)
 
             st.divider()
-            if prediction == 1:
+            if label == "REAL":
                 st.success("# ✅ REAL NEWS")
             else:
                 st.error("# 🚨 FAKE NEWS")
@@ -293,14 +356,14 @@ with tab2:
                     translated_text, detected_lang = translate_to_english(extracted_text)
                     cleaned    = clean_text(translated_text)
                     vector     = tfidf.transform([cleaned])
-                    prediction = model.predict(vector)[0]
+                    raw_pred   = model.predict(vector)[0]
                     confidence = get_confidence(model, vector)
-                    label      = "REAL" if prediction == 1 else "FAKE"
+                    label      = label_from_prediction(raw_pred)
                     save_history(extracted_text, translated_text, detected_lang,
                                  url_input, label, confidence)
 
                 st.divider()
-                if prediction == 1:
+                if label == "REAL":
                     st.success("# ✅ REAL NEWS")
                 else:
                     st.error("# 🚨 FAKE NEWS")
