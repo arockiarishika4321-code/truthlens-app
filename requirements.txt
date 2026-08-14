@@ -1,11 +1,1 @@
-pandas>=2.1,<2.3
-numpy==2.5.0
-scikit-learn==1.9.0
-streamlit>=1.32,<1.40
-joblib==1.5.3
-nltk>=3.8,<3.10
-matplotlib>=3.8,<3.10
-seaborn>=0.13,<0.14
-requests>=2.31,<3.0
-beautifulsoup4>=4.12,<5.0
-deep-translator>=1.11,<2.0
+pandas>=2.1,<2.3 numpy==2.2.6 scikit-learn==1.5.2 streamlit>=1.32,<1.40 joblib==1.4.2 nltk>=3.8,<3.10 matplotlib>=3.8,<3.10 seaborn>=0.13,<0.14 requests>=2.31,<3.0 beautifulsoup4>=4.12,<5.0 deep-translator>=1.11,<2.0
